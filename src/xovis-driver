@@ -1,0 +1,295 @@
+#!/usr/bin/env python3.5
+# author: Aslak Johansen <asjo@mmmi.sdu.dk>
+
+import importlib.util
+from os import listdir
+from sys import argv, exit
+import re
+import json
+import asyncio
+import aiohttp
+import traceback
+from aiohttp import web
+from time import time, mktime
+from datetime import datetime
+import types
+
+se_path     = 'storage_engines'
+config_path = '../etc/config.json'
+
+storage_engine_requirements = {
+    'description': str,
+    'arguments':   list,
+    'init':        types.FunctionType,
+    'insert':      types.FunctionType,
+    'uptime':      types.FunctionType,
+}
+
+def log (key, message):
+    if 'log' in config and 'blacklist' in config['log'] and key in config['log']['blacklist']:
+        return
+    print('%10.6f %s %s' % (time(), key, message))
+
+async def handler_push (method, path, payload, mo, accept):
+    log('handler_push', {'method': method, 'path': path, 'payload': payload, 'accept': accept})
+    
+    # decode payload
+    try:
+        decoded = json.loads(payload)
+    except:
+        msg = 'Error: Unable to decode payload as JSON:\n'+traceback.format_exc()
+        log('message-decode-failure', {'payload': payload, 'exception': msg})
+        return web.Response(status=400, text=msg)
+    
+    # extract needed values
+    try:
+        serial = decoded['sensor-info']['serial-number']
+    except:
+        msg = 'Error: Unable to extract expected values:\n'+traceback.format_exc()
+        log('message-extract-failure', {'payload': payload, 'exception': msg})
+        return web.Response(status=400, text=msg)
+    
+    # collect data
+    data = {} # element-name ↦ direction ↦ {readings ↦ (timestamp × value) list, meta ↦ name ↦ value}
+    for element in decoded['content']['element']:
+        element_name = element['element-name']
+        element_data = {}
+        
+        # guard: name collision
+        if element_name in data:
+            msg = 'Error: Name collision: \"%s\"' % element_name
+            log('message-name-guard', {'payload': payload, 'exception': msg})
+            return web.Response(status=400, text=msg)
+        
+        # collect
+        for measurement in element['measurement']:
+            dt = datetime.strptime(measurement['to'][:-3]+'00', '%Y-%m-%dT%H:%M:%S%z')
+            t = mktime(dt.timetuple())
+            
+            for pair in measurement['value']:
+                direction = pair['label']
+                value     = pair['value']
+                
+                if not direction in element_data: element_data[direction] = []
+                element_data[direction].append( (t, value) )
+        
+        # insert
+        metadata = {}
+        for key in element:
+            if not key in ['measurement', 'from', 'to']:
+                metadata[key] = element[key]
+        data[element_name] = {}
+        for direction in element_data:
+            data[element_name][direction] = {'readings': element_data[direction], 'meta': metadata}
+    
+    # extract camera metadata
+    camera_metadata = {}
+    for key in decoded:
+        if not key in ['content']:
+            camera_metadata[key] = decoded[key]
+    
+    await storage_engine.insert(serial, camera_metadata, data)
+    
+    return web.Response(status=200)
+
+services = {
+    'GET': [
+    ],
+    'POST': [
+        (re.compile('^/push'), handler_push),
+    ],
+}
+
+# generic handler for incoming http call
+async def handler (request):
+    method  = request.method
+    path    = str(request.rel_url)
+    payload = (await request.content.read()).decode("utf-8", "strict")
+    accept  = request.headers['Accept'].split(',') if 'Accept' in request.headers else None
+    log('received-request', {'method': method, 'path': path, 'payload': payload, 'accept': accept})
+    
+    # guard: unsupported method
+    if not method in services:
+        log('method-miss', {'method': method, 'path': path})
+        return web.Response(status=405)
+    
+    # lookup specific handler
+    try:
+        for pattern, h in services[method]:
+            mo = pattern.match(path)
+            if mo: break
+    except:
+        log('service-miss', {'method': method, 'path': path})
+        return web.Response(status=404)
+    
+    # run specific handler
+    try:
+        log('request-to-handler', {'method': method, 'path': path, 'payload': payload,
+                                   'accept': accept, 'handler': str(h)})
+        return await h(method, path, payload, mo, accept)
+    except:
+        tb = traceback.format_exc()
+        log('handler-exception', {'method': method, 'path': path, 'traceback': tb})
+        return web.Response(status=500, text=tb)
+
+async def uptime ():
+    t0 = time()
+    while True:
+        t1 = time()
+        ut = t1 - t0
+        
+        log('uptime', {'t1': t1, 'ut': ut})
+        await storage_engine.uptime(t1, ut)
+        
+        await asyncio.sleep(config['uptime_delay'])
+
+def load_storage_engines ():
+    global storage_engines
+    
+    storage_engines = {}
+    log('storage-engine-loading', {'path': se_path})
+    for filename in listdir(se_path):
+        name = filename.split('.')[0]
+        path = '%s/%s' % (se_path, filename)
+        
+        # guard: extension
+        if not filename.endswith('.py'):
+                continue
+        
+        # load
+        success = True
+        try:
+            spec = importlib.util.spec_from_file_location("module.name", path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            
+            # verify
+            errors = []
+            for identifier in storage_engine_requirements:
+                if not identifier in dir(module):
+                    errors.append('Identifier "%s" missing' % identifier)
+                elif not type(getattr(module, identifier))==storage_engine_requirements[identifier]:
+                    errors.append('Identifier "%s" has type "%s" instead of type "%s"' %
+                                  (identifier,
+                                   str(type(getattr(module, identifier))),
+                                   storage_engine_requirements[identifier]))
+            
+            # report
+            if len(errors)>0:
+                success = False
+                log('storage-engine-load-failure', {'list': errors})
+                print('Error(s) loading storage_engine "%s":' % path)
+                for error in errors:
+                    print(' - %s' % error)
+        except:
+            success = False
+        
+        # insert
+        storage_engines[name] = {
+            'success': success,
+        }
+        if success:
+            storage_engines[name]['module'] = module
+
+def display_help ():
+    print('Syntax: %s help' % argv[0])
+    print('        %s help STORAGE_ENGINE' % argv[0])
+    print('        %s run  STORAGE_ENGINE STORAGE_ENGINE_ARGS' % argv[0])
+    print('        %s run  smap http://server.dk:8079/add/cac7d1e0-17d8-4c87-b0e3-aa6b27e7f7f6' % argv[0])
+    print('')
+    print('Available storage engines:')
+    maxlen = max(map(lambda name: len(name), storage_engines))
+    for name in storage_engines:
+        storage_engine = storage_engines[name]
+        description = storage_engine['module'].description if storage_engine['success'] else 'broken'
+        print(' - %s:%s %s' % (name, ' '*(maxlen-len(name)), description))
+
+def display_storage_engine_help(name):
+    if not name in storage_engines:
+        print('Error: Unknown storage engine "%s"' % name)
+    elif not storage_engines[name]['success']:
+        print('Error: Storage engine "%s" broken' % name)
+    else:
+        module = storage_engines[name]['module']
+        
+        header = '%s: %s' % (name, module.description)
+        print(header)
+        print('~'*len(header))
+        print('')
+        
+        names    = map(lambda arg: arg['name']   , module.arguments)
+        examples = map(lambda arg: arg['example'], module.arguments)
+        print('Syntax: %s run %s %s' % (argv[0], name, ' '.join(names)))
+        print('        %s run %s %s' % (argv[0], name, ' '.join(examples)))
+        print('')
+        
+        print('Argument descriptions:')
+        maxlen = max(map(lambda arg: len(arg['name']), module.arguments))
+        for arg in module.arguments:
+            print(' - %s:%s %s' % (arg['name'], ' '*(maxlen-len(arg['name'])), arg['description']))
+
+
+# main
+async def main (loop):
+    global config, storage_engine, r
+    
+    # load config
+    with open(config_path) as fo:
+        config = json.loads(''.join(fo.readlines()))
+    
+    # load storage engines
+    load_storage_engines()
+    
+    # guard: handle commandline arguments
+    arglen = len(argv)
+    if   arglen==2:
+        display_help()
+        loop.stop()
+        return
+    elif arglen==3:
+        display_storage_engine_help(argv[2])
+        loop.stop()
+        return
+    elif arglen>=4:
+        valid = False
+        if argv[1]=='run':
+            se = argv[2]
+            if se in storage_engines and storage_engines[se]['success']:
+                storage_engine = storage_engines[se]['module']
+                success = await storage_engine.init(config, argv[3:], log)
+                if not success:
+                    log('storage-engine-init-failure', {'name': se})
+                    print('Storage engine "%s" failed to initialize' % se)
+                    loop.stop()
+                    return
+            else:
+                log('storage-engine-invalid', {'name': se})
+                print('Storage engine not valid "%s"' % se)
+                loop.stop()
+                return
+    else:
+        display_help()
+        loop.stop()
+        return
+    
+    # start server
+    server = web.Server(handler)
+    r = await loop.create_server(server, config['interface'], config['port'])
+    for socket in r.sockets:
+        log('listening', {'url': 'http://%s:%u' % socket.getsockname()})
+    
+    # start uptime stream
+    asyncio.Task(uptime())
+
+# schedule task
+loop = asyncio.get_event_loop()
+asyncio.Task(main(loop))
+
+# run asyncio event loop
+try:
+    loop.run_forever()
+except KeyboardInterrupt:
+    print('')
+    print('Exiting ...')
+loop.close()
+

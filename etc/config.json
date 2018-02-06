@@ -1,0 +1,15 @@
+{
+    "interface": "0.0.0.0",
+    "port": 6789,
+    "uptime_delay": 60,
+    "smap": {
+        "sourcename": "Xovis",
+        "uuid": "4ebcc043-907d-4871-801a-567a5ca0704b"
+    },
+    "log": {
+        "blacklist": [
+            "received-request",
+            "request-to-handler"
+        ]
+    }
+}
