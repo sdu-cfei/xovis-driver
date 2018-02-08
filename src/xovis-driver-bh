@@ -1,0 +1,14 @@
+#!/usr/bin/python
+
+from subprocess import run
+
+command = ['python',
+           'xovis-driver',
+           'run',
+           'bh',
+           'http://10.180.200.25:8081']
+
+
+p = run(command, shell=True)
+
+
