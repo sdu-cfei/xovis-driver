@@ -30,8 +30,8 @@ def log (key, message):
         return
     print('%10.6f %s %s' % (time(), key, message))
 
-async def handler_push (method, path, payload, mo, accept):
-    log('handler_push', {'method': method, 'path': path, 'payload': payload, 'accept': accept})
+async def handler_push (method, path, payload, mo, accept, handler_data):
+    log('handler_push', {'method': method, 'path': path, 'payload': payload, 'accept': accept}) #check handler_push content to see if it matches json dump
     
     # decode payload
     try:
@@ -58,6 +58,9 @@ async def handler_push (method, path, payload, mo, accept):
         # guard: name collision
         if element_name in data:
             msg = 'Error: Name collision: \"%s\"' % element_name
+            print('')
+            print('ELEMENT NAME: %s' % element_name)
+            print('')
             log('message-name-guard', {'payload': payload, 'exception': msg})
             return web.Response(status=400, text=msg)
         
@@ -88,7 +91,7 @@ async def handler_push (method, path, payload, mo, accept):
         if not key in ['content']:
             camera_metadata[key] = decoded[key]
     
-    await storage_engine.insert(serial, camera_metadata, data)
+    await storage_engine.insert(serial, camera_metadata, data, handler_data)
     
     return web.Response(status=200)
 
@@ -96,7 +99,9 @@ services = {
     'GET': [
     ],
     'POST': [
-        (re.compile('^/push'), handler_push),
+        (re.compile('^/push_dwell'), handler_push, 'Zone Dwell Time'),
+        (re.compile('^/push_linecount'), handler_push, 'Line Count Data'),
+        (re.compile('^/push_occ'), handler_push, 'Zone Occupancy'),
     ],
 }
 
@@ -115,7 +120,7 @@ async def handler (request):
     
     # lookup specific handler
     try:
-        for pattern, h in services[method]:
+        for pattern, h, handlerdata in services[method]:
             mo = pattern.match(path)
             if mo: break
     except:
@@ -126,7 +131,7 @@ async def handler (request):
     try:
         log('request-to-handler', {'method': method, 'path': path, 'payload': payload,
                                    'accept': accept, 'handler': str(h)})
-        return await h(method, path, payload, mo, accept)
+        return await h(method, path, payload, mo, accept, handlerdata)
     except:
         tb = traceback.format_exc()
         log('handler-exception', {'method': method, 'path': path, 'traceback': tb})
@@ -137,7 +142,7 @@ async def uptime ():
     while True:
         t1 = time()
         ut = t1 - t0
-        
+
         log('uptime', {'t1': t1, 'ut': ut})
         await storage_engine.uptime(t1, ut)
         

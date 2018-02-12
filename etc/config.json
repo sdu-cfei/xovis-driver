@@ -7,9 +7,6 @@
         "uuid": "4ebcc043-907d-4871-801a-567a5ca0704b"
     },
     "log": {
-        "blacklist": [
-            "received-request",
-            "request-to-handler"
-        ]
+        "blacklist": []
     }
 }

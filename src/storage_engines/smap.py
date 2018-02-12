@@ -28,7 +28,8 @@ async def init (cfg, args, l):
     
     return True
 
-async def insert (serial, camera_metadata, data):
+#handler_data is not yet used in this storage engine
+async def insert (serial, camera_metadata, data, handler_data):
     log('insert-smap', {'serial': serial, 'camera_metadata': camera_metadata, 'data': data})
     
     # construct structure
