@@ -33,14 +33,13 @@ async def insert (serial, camera_metadata, data, handler_data):
     s = {}
     s["HandlerData"] = handler_data
     for name in data:
-        for direction in data[name]:
-            s[name] = {}
-            readings = data[name][direction]['readings']
-            metadata = data[name][direction]['meta']
-            s[name]["readings"] = readings
-            s[name]["camera_metadata"] = metadata
-            
-    await postData(json.dumps(s, indent=2, sort_keys=True, separators=(',', ': ')))        
+        s[name] = {}
+        s[name]["readings"] = data[name]
+        s[name]["camera_metadata"] = camera_metadata
+
+    with open('data.txt', 'w') as outfile:
+        json.dump(s, outfile, sort_keys = True, indent = 4, ensure_ascii = False)     
+    #await postData(json.dumps(s, indent=2, sort_keys=True, separators=(',', ': ')))        
 
 async def uptime (t1, ut):
     print('CALL: uptime')
