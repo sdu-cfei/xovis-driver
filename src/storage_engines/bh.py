@@ -39,8 +39,8 @@ async def insert (serial, camera_metadata, data, handler_data):
             metadata = data[name][direction]['meta']
             s[name]["readings"] = readings
             s[name]["camera_metadata"] = metadata
-        
-    #await postData(json.dumps(s, indent=2, sort_keys=True, separators=(',', ': '))
+            
+    await postData(json.dumps(s, indent=2, sort_keys=True, separators=(',', ': ')))        
 
 async def uptime (t1, ut):
     print('CALL: uptime')
