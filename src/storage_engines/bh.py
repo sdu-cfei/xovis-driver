@@ -36,10 +36,7 @@ async def insert (serial, camera_metadata, data, handler_data):
         s[name] = {}
         s[name]["readings"] = data[name]
         s[name]["camera_metadata"] = camera_metadata
-
-    with open('data.txt', 'w') as outfile:
-        json.dump(s, outfile, sort_keys = True, indent = 4, ensure_ascii = False)     
-    #await postData(json.dumps(s, indent=2, sort_keys=True, separators=(',', ': ')))        
+    await postData(json.dumps(s, indent=2, sort_keys=True, separators=(',', ': ')))        
 
 async def uptime (t1, ut):
     print('CALL: uptime')
@@ -48,5 +45,5 @@ async def uptime (t1, ut):
 
 async def postData(json):
     headers = {'Content-type': 'application/json'}
-    response = await requests.post(restServerIp, data = json, headers = headers)
+    await requests.post(restServerIp, data = json, headers = headers)
 
