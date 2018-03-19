@@ -10,16 +10,18 @@ class DatabaseConnection:
             self.connection = pgres.connect("dbname='bh-db' user='postgres' host='localhost' password='pass' port='5432'")
             self.connection.autocommit = True
             self.cursor = self.connection.cursor()
-            print("Connected successfully to database.")
+            print('')
+            print("CALL: Connected successfully to database.")
         except:
-            print("Cannot connect to database")
+            print('')
+            print("CALL: Cannot connect to database")
 
     def create_metadata_table(self):
         create_table_json = "CREATE TABLE metadata(uuid varchar(50), data jsonb)"
         self.cursor.execute(create_table_json)
 
-    def insert_metadata(self, json):
-        temp_uuid = str(uuid.uuid1())
+    def insert_metadata(self, json, serial_number):
+        temp_uuid = str(uuid.uuid3(uuid.NAMESPACE_DNS, str(serial_number)))
         insert_metadata_json = "INSERT INTO metadata VALUES ('" + temp_uuid + "', '" + json + "')"
         self.cursor.execute(insert_metadata_json)
 

@@ -251,17 +251,13 @@ async def main (loop):
         display_help()
         loop.stop()
         return
-    elif arglen==3:
-        display_storage_engine_help(argv[2])
-        loop.stop()
-        return
-    elif arglen>=4:
+    elif arglen>=3:
         valid = False
         if argv[1]=='run':
             se = argv[2]
             if se in storage_engines and storage_engines[se]['success']:
                 storage_engine = storage_engines[se]['module']
-                success = await storage_engine.init(config, argv[3:], log)
+                success = await storage_engine.init(config, log)
                 if not success:
                     log('storage-engine-init-failure', {'name': se})
                     print('Storage engine "%s" failed to initialize' % se)
