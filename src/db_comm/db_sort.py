@@ -17,8 +17,14 @@ class DatabaseConnection:
             print("CALL: Cannot connect to database")
 
     def create_metadata_table(self):
-        create_table_json = "CREATE TABLE metadata(uuid varchar(50), data jsonb)"
-        self.cursor.execute(create_table_json)
+        try:
+            create_table_json = "CREATE TABLE metadata(uuid varchar(50), data jsonb)"
+            self.cursor.execute(create_table_json)
+        except (pgres.OperationalError, pgres.ProgrammingError) as e:
+            print('')
+            print('Unable to create metadata-table. Database table is corrupted.')
+            print(e)
+        
 
     def insert_metadata(self, json, serial_number):
         temp_uuid = str(uuid.uuid3(uuid.NAMESPACE_DNS, str(serial_number)))
@@ -43,7 +49,7 @@ class DatabaseConnection:
             return False
     
     def table_exists(self, TABLE_NAME):
-        show_table = "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_catalog='bh-db' AND table_schema='public' AND table_name='" + TABLE_NAME + "')"
+        show_table = "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_catalog='bh_metadata' AND table_schema='public' AND table_name='" + TABLE_NAME + "')"
         self.cursor.execute(show_table)
         answer = self.cursor.fetchone()[0]
         return answer
