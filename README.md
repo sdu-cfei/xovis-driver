@@ -14,7 +14,7 @@ A driver for [Xovis](https://www.xovis.com) camera counters.
 
 ## Configuration
 
-The storage engine specifc configuration options are giden at the commandline after `run` and the name of the storage engine.
+The storage engine specifc configuration options are given at the commandline after `run` and the name of the storage engine.
 
 The remaining options are given in the `/etc/config.json` configuration file. These are also available to the storage engines. It contains the following keys:
 
