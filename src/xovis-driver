@@ -114,11 +114,18 @@ async def handler (request):
         return web.Response(status=405)
     
     # lookup specific handler
+    h = None
     try:
         for pattern, h in services[method]:
             mo = pattern.match(path)
             if mo: break
     except:
+        tb = traceback.format_exc()
+        log('handler-lookup-exception', {'method': method, 'path': path})
+        return web.Response(status=500, text=tb)
+    
+    # guard: abort is no handler is found
+    if h==None:
         log('service-miss', {'method': method, 'path': path})
         return web.Response(status=404)
     
